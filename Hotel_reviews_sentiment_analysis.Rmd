@@ -1,0 +1,297 @@
+---
+title: "Hotel Review Analysis"
+author: "Vidya"
+date: "24 October 2018"
+output: html_document
+---
+##  Sentiment Analysis of Hotel Reviews.
+
+### Data Analysis Domain: Text Analytics
+
+### Business Domain: Hospitality Industry.
+
+### Data Source : https://archive.ics.uci.edu/ml/datasets/Eco-hotel
+
+### The data consists of online reviews , both online (TripAdvisor) and offline (e.g., 
+### Guests' book) sources from the Areias do Seixo Eco-Resort.
+
+### All the 401 reviews were collected between January and August of 2015.
+
+### **Data Analysis Objective:** 
+
+* to be able to segregate the positive and negative words in the reviews
+* to know what are the most good and bad factors experienced by the guests
+* to be able to flag the review as a positive feedback or a negative one.(This analysis restricts the scope to either 'positive' or 'negative'. Future work will involve further classification to other sentiments.)  
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE , message = FALSE , warning = FALSE)
+```
+
+```{r}
+library(tidytext)
+library(tidyverse)
+
+```
+
+### Glimpse of some reviews.
+
+```{r}
+file <- "dataset-CalheirosMoroRita-2017.csv"
+hotel_review <- read.csv(file , stringsAsFactors = FALSE , header = TRUE , sep ='\n')
+hotel_review <- cbind("review.no"= as.numeric(row.names(hotel_review)) , hotel_review )
+
+hotel_review[1:4,'Review']
+```
+
+### These reviews are split into single words and common words such as pronouns , conjunctions , preposition are filtered out. The remaining words are counted to know the maximum usage in the review.
+
+```{r}
+hotel_review_words <- hotel_review %>% unnest_tokens(word , Review , token = "words")
+data(stop_words)
+
+added_words <- c("main" , "built" , "lot")
+
+custom_stopwords <- rbind(data.frame(word = "main" , lexicon = "custom") , stop_words)
+hotel_review_words <- hotel_review_words %>% anti_join(custom_stopwords)
+
+wordcounts <- hotel_review_words  %>% count(word , sort = TRUE)
+
+wordcounts %>% filter(n >= 30) %>% mutate(word = reorder(word , -n)) %>% ggplot( aes(word, n)) + geom_col(fill = "light pink")  + coord_flip() + labs(title = "Count of Words used in the review( Top 1%) " , x = "word" , y= "count") 
+
+```
+
+
+### A look into the most common words by their frequencies in the review.
+
+```{r}
+
+library(wordcloud)
+
+hotel_review_words %>% count(word) %>% with(wordcloud(word , n , max.words = 100))
+```
+
+
+
+### Among the words used in the review , how many are positive meaning and their count ? 
+### For this purpose , 'nrc' lexicon is used to reference the positive and negative meaning words.This analysis restricts the scope of identification to 'positive' /'negative' . 
+
+
+```{r}
+required_sentiments <- get_sentiments("nrc") %>% filter(sentiment %in% c("positive" ,"negative" ))
+
+####### Sentiment word need some fix 
+required_sentiments[required_sentiments$word %in% c('words','overwhelmed'),'sentiment'] <- 'neutral'
+required_sentiments[required_sentiments$word %in% c("found","immediately"),'sentiment'] <- 'neutral'
+
+sentiment_count_all <- inner_join(hotel_review_words , required_sentiments, by = "word")  %>% group_by(word, sentiment ) %>% count(word , sort =TRUE) %>% ungroup()
+
+sentiment_count_all  %>% filter(n >= 15 & sentiment == "positive") %>% mutate(word = reorder(word , -n)) %>% ggplot(aes(word, n )) + geom_col(fill = "light green")  + coord_flip() + labs(x = "word" , y = "word count") +
+  ggtitle("Most common positive meaning words in the review (Top 7%)")
+```
+
+### Word cloud of positive words by their frequency in the reviews
+```{r}
+hotel_review_bing <-   hotel_review_words %>% inner_join(get_sentiments("bing")) 
+
+hotel_review_bing %>% filter(sentiment == "positive")  %>% count(word) %>% filter(n > 2) %>%  with(wordcloud(word , n  ,max.words = 100 ))
+
+```
+
+### Among the words used in the review , how many are negative meaning and their count ?  
+
+```{r}
+sentiment_count_all  %>% filter(n >= 3 & sentiment == "negative") %>% mutate(word = reorder(word , -n)) %>% ggplot(aes(word, n)) + geom_col(fill = "red") + coord_flip() +labs(x="word" , y = "word count") +
+  ggtitle("Most common negative meaning words in the review . (Top 15%)")
+
+```
+
+### Word cloud of negative  words by their frequency in the reviews
+
+```{r}
+hotel_review_bing %>% filter(sentiment == "negative")  %>% count(word , sort = TRUE) %>% with(wordcloud(word , n , max.words = 100))
+
+```
+
+### To undestand the context , review is broken by dual words . This is done so that we can look out for negators or enhancers in front of a positive meaning or negative meaning word. First , lets look at the most commonly used dual words.
+
+```{r}
+
+hotel_review_bigrams <- hotel_review %>% unnest_tokens(bigram , Review , token = "ngrams" , n=2 , collapse =TRUE)
+
+bigram_seperated <- hotel_review_bigrams %>% separate(bigram , c("Word1" ,"Word2") , sep = " ")
+
+bigrams_filtered <- bigram_seperated %>%
+  filter(!Word1 %in% stop_words$word) %>%
+  filter(!Word2 %in% stop_words$word)
+
+hotel_review_bigrams_filt <- bigrams_filtered %>% unite(bigram , Word1 , Word2 , sep = " ")
+
+bigram_count_filt <- hotel_review_bigrams_filt %>% count(bigram , sort =TRUE )
+
+bigram_count_filt  %>% filter(n > 2) %>% mutate(bigram = reorder(bigram , -n)) %>% ggplot(aes(bigram  , n)) +geom_col(fill = "orange") + coord_flip() + ggtitle("Most common dual words in the review (Top 2%) ") + ylab("Count") +xlab('Dual words')
+
+```
+
+### Dual words and their frequency as word cloud .
+
+```{r}
+bigram_count_filt %>% filter(n >3) %>% with(wordcloud(bigram , n ))
+
+```
+
+### It looks like the most of the reviews may be positive as the most of the common dual words used in the review appear to be positive meaning.
+```{r}
+
+custom_sentiments <- sentiments %>% filter(lexicon == "nrc")
+
+## Need to customize the sentiment according the industry . Also need to add many sentiments that are specific to the hotel industry.
+
+custom_sentiments[(custom_sentiments$word %in% c("serene","outstanding")) & (custom_sentiments$sentiment == 'negative'),'sentiment'] <- 'neutral'
+
+custom_sentiments[(custom_sentiments$word %in% c("overcome","anniversary","wedding","thanks","imperative" ,"touched")) & (custom_sentiments$sentiment == 'negative'),'sentiment'] <- 'positive'
+
+custom_sentiments[custom_sentiments$word == "charmed" & custom_sentiments$sentiment == "negative", "sentiment"] <- 'neutral'
+
+neutral_words <- c('escape' , 'placement' , 'regulatory' , 'quote' , 'cave' , 'flair' ,'foreign', 'question' , 'gluten' ,"treat","case","food", "soul", "memory","immediately","recall", "feeling","words","jam","retreat")
+
+custom_sentiments[custom_sentiments$word %in% neutral_words , 'sentiment'] <- 'neutral'
+
+```
+
+### Most commonly used dual words are further seperated into positive /negative meaning and as follows-  
+
+```{r}
+positive_words <- custom_sentiments[custom_sentiments$sentiment == 'positive',]$word
+
+positive_bigrams_1 <- bigram_seperated %>% filter(Word1 %in% positive_words | Word2 %in% positive_words)
+
+common_words <- c('a', 'the' , 'you' , 'we' , 'since' , 'to' , 'of', 'as', 'for', 'he', 'they','i','she', 'them', 'him' , 'her','with','in','at', 'all', 'question', "and", "would","because","me","it","that","this","small","if","by","where","my","there","now","our")
+
+positive_bigrams_1 <- positive_bigrams_1 %>% filter(!(Word1 %in% common_words) & !(Word2  %in% common_words))
+
+positive_bigram_united <- positive_bigrams_1 %>% unite(bigram , Word1 , Word2 , sep = " ")
+
+positive_bigram_countwords <- positive_bigram_united %>%  count(bigram , sort = TRUE)
+
+## Plot the most common positive words in the review .
+positive_bigram_countwords %>% filter(n >=5) %>% mutate(bigram = reorder(bigram , -n)) %>% ggplot(aes(bigram , n)) +geom_col(fill = "pink") + coord_flip() + labs(title = "Most common positive dual words in the review (Top 1%)" , x = "words" , y = "count")
+
+```
+
+
+
+### Frequency of positive dual words in the review as word cloud 
+
+
+
+```{r}
+positive_bigram_countwords  %>% filter(n > 2) %>% with(wordcloud(bigram , n))
+
+```
+
+### Reviews are further analyzed for finding out the positive and negative meaning adjectives/nouns/adverbs.
+
+```{r}
+
+start_words_pos <- c('is', 'was', 'were', 'are', 'has','stay',"quite","very","really","absolutely","too","some","how","so")
+
+positive_adjective <- positive_bigrams_1 %>% filter(Word1 %in% start_words_pos) %>% 
+  unite(bigram , Word1 , Word2 , sep = " ") %>% count(bigram , sort = TRUE)
+
+positive_adjective %>% filter(n >= 2) %>% mutate(bigram = reorder(bigram , -n)) %>% ggplot(aes(bigram , n)) + geom_col (fill = "pink") + coord_flip() + labs(title = "Most common positive noun/adjective/adverb .(Top 25%)", y = "count", x= "")
+
+flag_positive_bigram <- positive_bigrams_1 %>% mutate(flag = ifelse(Word1 %in% start_words_pos , 'Y', ''))
+
+start_words_neg <- c("isn't", "wasn't", "weren't", "aren't", "hasn't", "lacks", "not","never","can't","cannot","without","no","don't")
+
+negative_start_words <-   positive_bigrams_1 %>% filter(Word1 %in% start_words_neg) %>% 
+  unite(bigram , Word1 , Word2 , sep = " ") %>% group_by(review.no) %>% count(bigram , sort = TRUE)
+
+flag_positive_bigram <- flag_positive_bigram %>% mutate(flag = ifelse(Word1 %in% start_words_neg , 'N', flag))
+
+```
+
+
+### Word Cloud of positive meaning adjective/adverb/pronoun
+
+
+```{r}
+
+positive_adjective %>% with(wordcloud(bigram , n, scale=c(3,0.5)))
+```
+
+### When positive meaning words are negated with a 'not' or 'isn't' in front of it , it means a negative sentiment.Filter out such dual words as shown below.
+
+```{r}
+negative_start_words %>% with(wordcloud(bigram , n , scale=c(3,0.5)))
+
+```
+
+### Looking at negative sentiment in the review . These are part of reviews which express something negative.  
+
+```{r}
+
+negative_words <- custom_sentiments[custom_sentiments$sentiment == 'negative',]$word
+
+negative_bigrams_1 <- bigram_seperated %>% filter(Word1 %in% negative_words | Word2 %in% negative_words)
+
+negative_bigrams_1 <- negative_bigrams_1 %>% filter(!(Word1 %in% common_words) & !(Word2 %in% common_words)) 
+
+negative_adjective <- negative_bigrams_1 %>% filter(Word1 %in% start_words_pos) %>% 
+  unite(bigram , Word1 , Word2 , sep = " ") %>% count(bigram , sort = TRUE)
+
+negative_adjective %>% with(wordcloud(bigram , n , scale=c(2,0.5)))
+
+## Mark the negative words based on the intention of the word. i.e if precedded by a negator, it means a good sentiment and vice versa.
+
+ flag_negative_bigram <- negative_bigrams_1 %>% mutate(flag = ifelse(Word1 %in% start_words_pos, 'Y', ''))
+
+ flag_negative_bigram <- flag_negative_bigram %>% mutate(flag = ifelse(Word1 %in% start_words_neg, 'N', flag))
+
+```
+
+### Negation of negative meaning words , which means a positive sentiment. 
+
+```{r}
+
+negative_bigrams_1 %>% filter(Word1 %in% start_words_neg) %>% 
+  unite(bigram , Word1 , Word2 , sep = " ") %>% count(bigram , sort = TRUE) %>% with(wordcloud(bigram , n , scale = c(2,0.5)))
+
+
+```
+
+### As shown above , each review is marked for its positive and negative sentiments. 
+### By counting each of them , we get it an overall sentiment feel of the review. 
+
+```{r}
+
+ positive_bigram_count <- flag_positive_bigram %>% filter(flag != 'N') %>%  group_by(review.no) %>% count()
+ 
+negative_bigram_count <- flag_negative_bigram %>% filter(flag != 'N') %>%  group_by(review.no) %>% count()
+
+## Combine the positive and negative bigram count with the hotel reviews.
+
+hotel_review_sentiment <- left_join(hotel_review , positive_bigram_count , by = 'review.no')
+
+colnames(hotel_review_sentiment) <- c("review.no" , "Review" , "positive.count")
+
+hotel_review_sentiment[is.na(hotel_review_sentiment$positive.count) , "positive.count"] <- 0
+
+hotel_review_sentiment <- left_join(hotel_review_sentiment , negative_bigram_count , by = 'review.no')
+
+colnames(hotel_review_sentiment) <- c("review.no" , "Review" , "positive.count" , "negative.count")
+
+hotel_review_sentiment[is.na(hotel_review_sentiment$negative.count) , "negative.count"] <- 0
+
+hotel_review_sentiment %>% mutate(negative.count = -(negative.count)) %>% ggplot(aes(review.no , positive.count)) + geom_col(fill = "green", width = 2) + geom_col(aes(review.no , negative.count), fill = "light pink", width = 2) + labs(title = 'Measure of positivity and negativity in each review' , x= 'Review No' , y = " ")
+```
+
+### Which are the reviews that need scrutiny ? i.e have all/more negative sentiments than positive ?
+
+
+```{r}
+
+hotel_review_sentiment %>% mutate(flag = ifelse(positive.count < negative.count, 'Y', 'N')) %>% filter(flag == 'Y') %>% mutate(negative.count = -(negative.count)) %>% ggplot(aes(review.no , positive.count, label = review.no)) + geom_col(fill = "green", width = 2) + geom_col(aes(review.no , negative.count), fill = "light pink", width = 2) + labs(title = 'Reviews that need scrutiny' , x= 'Review No' , y = " ") + geom_text()
+```
+
+###  The method developed to identify the sentiments needs more work . Out of the 8 reviews marked for scrutiny , 3 seem to be perfectly positive reviews . Hence the error rate : 25% 
